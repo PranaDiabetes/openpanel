@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm with-env vite dev --port 3000",
+    "dev": "pnpm with-env vite dev",
+    "testing": "pnpm dev",
     "start_deprecated": "pnpm with-env node .output/server/index.mjs",
     "preview": "vite preview",
     "deploy": "pnpm build && npx wrangler deploy",
