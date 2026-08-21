@@ -13,8 +13,8 @@ export const TEST_ORG_ID = 'integration-org';
 // so vitest's `env` config is not applied — set defaults explicitly.
 function setEnvDefaults() {
   process.env.DATABASE_URL ??=
-    'postgresql://postgres:postgres@localhost:5432/postgres?schema=public';
-  process.env.CLICKHOUSE_URL ??= 'http://localhost:8123/openpanel';
+    'postgresql://postgres:postgres@localhost:55432/postgres?schema=public';
+  process.env.CLICKHOUSE_URL ??= 'http://localhost:58123/openpanel';
 }
 
 export async function setup() {
