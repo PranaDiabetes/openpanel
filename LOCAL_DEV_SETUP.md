@@ -1,5 +1,7 @@
 # Local Dev Setup (custom ports + Node fixes)
 
+For plain copy-pasteable steps to get running, see [RUNNING_LOCALLY.md](RUNNING_LOCALLY.md). This doc covers the reasoning behind them.
+
 This documents everything changed to get Openpanel running via `pnpm dev` on a
 machine where common ports (5432, 6379, 3000, ...) are already taken by other
 services, plus two unrelated bugs that were hit and fixed along the way.
