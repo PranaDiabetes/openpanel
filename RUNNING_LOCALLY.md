@@ -61,6 +61,26 @@ Starts the API, worker, and dashboard together.
 - Worker / BullBoard: **http://localhost:59999**
 - Redpanda Console: **http://localhost:58091**
 
+## 7. (Optional) Access from another device on your LAN
+
+By default, login only works from the same machine — the dashboard's client bundle and the API's CORS allow-list are both pinned to `localhost`. To reach the dashboard from your phone or another computer on the same network:
+
+```bash
+# find your machine's LAN IP (macOS)
+ipconfig getifaddr en0
+```
+
+Then, using that IP (example: `192.168.50.143`):
+
+```bash
+printf 'API_URL=http://192.168.50.143:53333\nDASHBOARD_URL=http://192.168.50.143:53000\n' > apps/start/.dev.vars
+echo 'API_CORS_ORIGINS="http://192.168.50.143:53000"' >> .env
+```
+
+Restart `pnpm dev` (Ctrl+C, then `pnpm dev` again), then open `http://192.168.50.143:53000` from the other device.
+
+This IP is tied to your current network — if it changes (different Wi-Fi, DHCP lease renewal), redo this step with the new IP.
+
 ## Stopping
 
 ```bash
@@ -84,3 +104,5 @@ Ports to check: `53333` (api), `53000` (dashboard), `59999` (worker), `55432` (p
 **Dashboard hits `api.openpanel.dev` instead of localhost** — `apps/start/.dev.vars` is missing. Recreate it (step 2).
 
 **Sign-up fails with an encryption error** — `ENCRYPTION_KEY` isn't set in `.env` (step 2).
+
+**Login fails / hangs when accessed via LAN IP** — see step 7. Without it, the browser on the other device tries to call the API at `localhost:53333`, which resolves to that device itself, not your machine.

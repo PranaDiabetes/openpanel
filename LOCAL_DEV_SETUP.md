@@ -161,6 +161,34 @@ openssl rand -hex 32
 restricts things when the var is explicitly present and `!= 'true'`), but
 setting it explicitly makes the intent unambiguous for a local/dev instance.
 
+## 7. LAN access (logging in from another device)
+
+By default, login only works from `localhost`. Two things are pinned there:
+
+- `apps/start/.dev.vars`'s `API_URL` is what the *browser* uses as the API
+  base URL (baked into the client bundle via
+  `apps/start/src/server/get-envs.ts`) — a browser on another LAN device
+  resolves `localhost` to itself, not this machine, so requests never even
+  connect.
+- `apps/api/src/app.ts`'s CORS allow-list (`dashboardOrigins`, built from
+  `DASHBOARD_URL`/`NEXT_PUBLIC_DASHBOARD_URL` plus the optional
+  `API_CORS_ORIGINS` env var) only accepts the `localhost` origin — even if
+  the request above did connect, the browser would block the response.
+
+Cookie handling needed no fix: `packages/auth/parse-cookie-domain.ts`
+already special-cases IP-address hosts (regex `/^\d+\.\d+\.\d+\.\d+$/`) to
+skip setting a `Domain` attribute, so it works for an IP host out of the box.
+
+Fix, using this machine's LAN IP as an example (`192.168.50.143`):
+
+```bash
+printf 'API_URL=http://192.168.50.143:53333\nDASHBOARD_URL=http://192.168.50.143:53000\n' > apps/start/.dev.vars
+echo 'API_CORS_ORIGINS="http://192.168.50.143:53000"' >> .env
+```
+
+Then restart `pnpm dev`. This IP is tied to the current network — redo it
+if the machine's LAN IP changes.
+
 ## Setup checklist for a fresh machine
 
 ```bash
