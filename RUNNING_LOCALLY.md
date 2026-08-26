@@ -73,9 +73,15 @@ ipconfig getifaddr en0
 Then, using that IP (example: `192.168.50.143`):
 
 ```bash
-printf 'API_URL=http://192.168.50.143:53333\nDASHBOARD_URL=http://192.168.50.143:53000\n' > apps/start/.dev.vars
+cat > apps/start/.dev.vars <<'EOF'
+API_URL=http://192.168.50.143:53333
+DASHBOARD_URL=http://192.168.50.143:53000
+API_URL_SSR=http://localhost:53333
+EOF
 echo 'API_CORS_ORIGINS="http://192.168.50.143:53000"' >> .env
 ```
+
+`API_URL_SSR` is required, not optional — the dev server's SSR runtime (a Cloudflare Workers/Miniflare sandbox) can only reach `localhost`, not the machine's own LAN IP. Without it, `/login` fails server-side with "Network connection lost", for *every* device including `localhost` — not just LAN clients.
 
 Restart `pnpm dev` (Ctrl+C, then `pnpm dev` again), then open `http://192.168.50.143:53000` from the other device.
 
@@ -106,3 +112,5 @@ Ports to check: `53333` (api), `53000` (dashboard), `59999` (worker), `55432` (p
 **Sign-up fails with an encryption error** — `ENCRYPTION_KEY` isn't set in `.env` (step 2).
 
 **Login fails / hangs when accessed via LAN IP** — see step 7. Without it, the browser on the other device tries to call the API at `localhost:53333`, which resolves to that device itself, not your machine.
+
+**`/login` shows "Something went wrong" / "Network connection lost" for everyone, including `localhost`** — either Docker isn't running (`docker ps` — restart Docker Desktop if it errors), or `apps/start/.dev.vars` has `API_URL` set to a LAN IP without `API_URL_SSR=http://localhost:53333` alongside it (see step 7) — the SSR runtime can't reach the LAN IP, only `localhost`.

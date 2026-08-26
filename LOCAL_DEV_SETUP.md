@@ -182,12 +182,46 @@ skip setting a `Domain` attribute, so it works for an IP host out of the box.
 Fix, using this machine's LAN IP as an example (`192.168.50.143`):
 
 ```bash
-printf 'API_URL=http://192.168.50.143:53333\nDASHBOARD_URL=http://192.168.50.143:53000\n' > apps/start/.dev.vars
+cat > apps/start/.dev.vars <<'EOF'
+API_URL=http://192.168.50.143:53333
+DASHBOARD_URL=http://192.168.50.143:53000
+API_URL_SSR=http://localhost:53333
+EOF
 echo 'API_CORS_ORIGINS="http://192.168.50.143:53000"' >> .env
 ```
 
 Then restart `pnpm dev`. This IP is tied to the current network — redo it
 if the machine's LAN IP changes.
+
+### Regression this caused, and the actual fix (`API_URL_SSR`)
+
+Pointing `API_URL` straight at the LAN IP (no `API_URL_SSR`) broke login
+entirely — for *every* device, including `localhost` — with `/login`
+rendering "Something went wrong: Network connection lost."
+
+Cause: `apps/start` runs its dev server through `@cloudflare/vite-plugin`
+(a Workers/Miniflare sandbox — see section 4 above). Server-side rendering
+executes inside that sandbox, and the sandbox can `fetch()` `localhost`
+but not the host machine's own LAN-facing IP. `/login`'s SSR loader calls
+`auth.session` via the tRPC client built in
+`apps/start/src/integrations/tanstack-query/root-provider.tsx`, which uses
+`API_URL` as its base URL by default — so once `API_URL` became the LAN IP,
+every SSR request failed with `Error: Network connection lost.` at
+`root-provider.tsx:83` (a plain `fetch()` call), regardless of which host
+the browser used to load the page.
+
+The codebase already had the fix built in and just needed wiring up:
+`getSsrApiUrlOverride()` (`root-provider.tsx:45-51`) reads
+`process.env.API_URL_SSR` and uses it as the base URL *only* on the server;
+the client always uses the public `apiUrl` from `getServerEnvs()`
+(`apps/start/src/server/get-envs.ts`), which still resolves to `API_URL`.
+Setting `API_URL_SSR=http://localhost:53333` in `.dev.vars` (alongside the
+LAN-IP `API_URL`) fixes both cases: the sandbox fetches `localhost` for SSR,
+the browser fetches the LAN IP for client-side calls (login, etc.).
+
+If `/login` ever shows this error again with Docker confirmed running
+(`docker ps`), check `apps/start/.dev.vars` for a LAN-IP `API_URL` missing
+its matching `API_URL_SSR=http://localhost:53333`.
 
 ## Setup checklist for a fresh machine
 
