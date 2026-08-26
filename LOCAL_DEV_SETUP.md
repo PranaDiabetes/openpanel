@@ -163,8 +163,17 @@ setting it explicitly makes the intent unambiguous for a local/dev instance.
 
 ## 7. LAN access (logging in from another device)
 
-By default, login only works from `localhost`. Two things are pinned there:
+By default, login only works from `localhost`. Three things are pinned there:
 
+- `apps/api/src/index.ts:13-15` — the API's `fastify.listen({ host, port })`
+  uses `host = process.env.API_HOST || (NODE_ENV === 'production' ?
+  '0.0.0.0' : 'localhost')`. In dev, `NODE_ENV` isn't `production`, so it
+  binds to `localhost` only — the OS refuses the TCP connection from any
+  other device outright, before the app even runs. This is the one that bit
+  us in practice: fixing the URL/CORS below without this still fails, with
+  the browser reporting "Load failed" / "Failed to fetch" on login (the page
+  itself loads fine, since Vite's `server.host: true` already binds
+  broadly — only the API was affected).
 - `apps/start/.dev.vars`'s `API_URL` is what the *browser* uses as the API
   base URL (baked into the client bundle via
   `apps/start/src/server/get-envs.ts`) — a browser on another LAN device
@@ -179,15 +188,22 @@ Cookie handling needed no fix: `packages/auth/parse-cookie-domain.ts`
 already special-cases IP-address hosts (regex `/^\d+\.\d+\.\d+\.\d+$/`) to
 skip setting a `Domain` attribute, so it works for an IP host out of the box.
 
-Fix, using this machine's LAN IP as an example (`192.168.50.143`):
+Fix — resolve the LAN IP instead of hardcoding it, since it changes across
+reboots/DHCP renewals (this bit us too — see the second regression below):
 
 ```bash
-cat > apps/start/.dev.vars <<'EOF'
-API_URL=http://192.168.50.143:53333
-DASHBOARD_URL=http://192.168.50.143:53000
+LAN_IP=$(ipconfig getifaddr en0)
+
+cat > apps/start/.dev.vars <<EOF
+API_URL=http://$LAN_IP:53333
+DASHBOARD_URL=http://$LAN_IP:53000
 API_URL_SSR=http://localhost:53333
 EOF
-echo 'API_CORS_ORIGINS="http://192.168.50.143:53000"' >> .env
+
+cat >> .env <<EOF
+API_HOST=0.0.0.0
+API_CORS_ORIGINS="http://$LAN_IP:53000"
+EOF
 ```
 
 Then restart `pnpm dev`. This IP is tied to the current network — redo it
@@ -222,6 +238,32 @@ the browser fetches the LAN IP for client-side calls (login, etc.).
 If `/login` ever shows this error again with Docker confirmed running
 (`docker ps`), check `apps/start/.dev.vars` for a LAN-IP `API_URL` missing
 its matching `API_URL_SSR=http://localhost:53333`.
+
+### Second regression: stale IP + missing `API_HOST`
+
+After fixing `API_URL_SSR`, LAN login still failed with "Load failed" in
+the browser on the other device (dashboard page itself loaded fine).
+Two separate things, found by testing each layer directly with `curl`
+rather than only through the browser:
+
+1. **`API_HOST` was never set.** `apps/api` bound to `localhost` only (see
+   above) — confirmed via `lsof -nP -iTCP:53333 -sTCP:LISTEN`, which showed
+   `[::1]:53333` and `127.0.0.1:53333` but no wildcard/LAN-interface entry.
+   `apps/worker`'s Express `app.listen(PORT, callback)` has no host arg and
+   was already binding broadly (`*:59999`) — only the API needed the fix.
+2. **The LAN IP baked into `.dev.vars`/`.env` had gone stale.** It had been
+   set to `192.168.50.143` earlier, but `ipconfig getifaddr en0` now
+   returned `192.168.50.121` — DHCP had reassigned the address (likely
+   across a Docker Desktop restart / reboot). `curl` to the old IP failed
+   to connect at all (`curl: (7) Failed to connect`), which is exactly what
+   "Load failed" looks like from a browser given the same non-existent
+   destination.
+
+Both were silent failures from the app's perspective — nothing in `pnpm
+dev`'s own log flags either one, since the OS rejects the connection before
+any app code runs. `lsof -nP -iTCP:<port> -sTCP:LISTEN` (does it show a LAN
+IP, not just loopback?) and `ipconfig getifaddr en0` (does it match what's
+in `.dev.vars`/`.env`?) are the two checks that actually surface them.
 
 ## Setup checklist for a fresh machine
 

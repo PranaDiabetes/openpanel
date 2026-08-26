@@ -63,29 +63,32 @@ Starts the API, worker, and dashboard together.
 
 ## 7. (Optional) Access from another device on your LAN
 
-By default, login only works from the same machine — the dashboard's client bundle and the API's CORS allow-list are both pinned to `localhost`. To reach the dashboard from your phone or another computer on the same network:
+By default, login only works from the same machine. Three things are pinned to `localhost`: the API only *binds* to `localhost` (refuses connections from other devices outright), and both the dashboard's client bundle and the API's CORS allow-list are pinned to `localhost` too. To reach the dashboard from your phone or another computer on the same network:
 
 ```bash
-# find your machine's LAN IP (macOS)
-ipconfig getifaddr en0
-```
+LAN_IP=$(ipconfig getifaddr en0)   # try en1 if this is empty — check `ifconfig` if unsure
+echo "Using LAN IP: $LAN_IP"
 
-Then, using that IP (example: `192.168.50.143`):
-
-```bash
-cat > apps/start/.dev.vars <<'EOF'
-API_URL=http://192.168.50.143:53333
-DASHBOARD_URL=http://192.168.50.143:53000
+cat > apps/start/.dev.vars <<EOF
+API_URL=http://$LAN_IP:53333
+DASHBOARD_URL=http://$LAN_IP:53000
 API_URL_SSR=http://localhost:53333
 EOF
-echo 'API_CORS_ORIGINS="http://192.168.50.143:53000"' >> .env
+
+cat >> .env <<EOF
+API_HOST=0.0.0.0
+API_CORS_ORIGINS="http://$LAN_IP:53000"
+EOF
 ```
 
-`API_URL_SSR` is required, not optional — the dev server's SSR runtime (a Cloudflare Workers/Miniflare sandbox) can only reach `localhost`, not the machine's own LAN IP. Without it, `/login` fails server-side with "Network connection lost", for *every* device including `localhost` — not just LAN clients.
+All three lines are required, not optional:
+- **`API_HOST=0.0.0.0`** — without it, the API only accepts connections from this machine itself (see `apps/api/src/index.ts`), no matter what URL/CORS is configured. Symptom: "Load failed" / "Failed to fetch" in the other device's browser on login.
+- **`API_URL_SSR=http://localhost:53333`** — the dev server's SSR runtime (a Cloudflare Workers/Miniflare sandbox) can only reach `localhost`, not this machine's own LAN IP. Without it, `/login` fails server-side with "Network connection lost", for *every* device including `localhost` — not just LAN clients.
+- **`API_CORS_ORIGINS`** — without it, the API's CORS allow-list rejects the browser's request outright.
 
-Restart `pnpm dev` (Ctrl+C, then `pnpm dev` again), then open `http://192.168.50.143:53000` from the other device.
+Restart `pnpm dev` (Ctrl+C, then `pnpm dev` again), then open `http://$LAN_IP:53000` from the other device.
 
-This IP is tied to your current network — if it changes (different Wi-Fi, DHCP lease renewal), redo this step with the new IP.
+This IP is tied to your current network and **can change** (DHCP lease renewal, switching Wi-Fi/Ethernet, machine reboot) — if login that was working suddenly breaks, re-run `ipconfig getifaddr en0` and compare against what's in `apps/start/.dev.vars`/`.env` before assuming anything else is wrong.
 
 ## Stopping
 
@@ -113,4 +116,8 @@ Ports to check: `53333` (api), `53000` (dashboard), `59999` (worker), `55432` (p
 
 **Login fails / hangs when accessed via LAN IP** — see step 7. Without it, the browser on the other device tries to call the API at `localhost:53333`, which resolves to that device itself, not your machine.
 
+**Login on another device fails with "Load failed" / "Failed to fetch"** (dashboard page itself loads fine) — the API isn't accepting connections from other devices. Add `API_HOST=0.0.0.0` to `.env` (see step 7) and restart `pnpm dev`.
+
 **`/login` shows "Something went wrong" / "Network connection lost" for everyone, including `localhost`** — either Docker isn't running (`docker ps` — restart Docker Desktop if it errors), or `apps/start/.dev.vars` has `API_URL` set to a LAN IP without `API_URL_SSR=http://localhost:53333` alongside it (see step 7) — the SSR runtime can't reach the LAN IP, only `localhost`.
+
+**LAN access was working, then suddenly isn't** — the machine's LAN IP changed (DHCP renewal, network switch, reboot). Run `ipconfig getifaddr en0` and compare against `apps/start/.dev.vars`/`.env`; redo step 7 with the current IP if they differ.
