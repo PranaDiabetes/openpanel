@@ -189,14 +189,18 @@ export async function connectUserToOrganization({
   });
 
   if (invite.projectAccess.length > 0) {
-    for (const projectId of invite.projectAccess) {
-      await getProjectAccess.clear({ userId: user.id, projectId });
+    for (const grant of invite.projectAccess) {
+      await getProjectAccess.clear({
+        userId: user.id,
+        projectId: grant.projectId,
+      });
       await db.projectAccess.create({
         data: {
-          projectId,
+          projectId: grant.projectId,
           userId: user.id,
           organizationId: invite.organizationId,
-          level: 'write',
+          // The level the inviting admin chose, not a hardcoded default.
+          level: grant.level,
         },
       });
     }
@@ -256,6 +260,29 @@ export async function getOrganizationEventsCount(projectIds: string[]) {
   sb.select.count = 'COUNT(*) AS count';
   sb.where.projectIds = `project_id IN (${projectIds.map((id) => sqlstring.escape(id)).join(',')})`;
   sb.where.names = `name NOT IN ('session_start', 'session_end')`;
+
+  const res = await chQuery<{ count: number }>(getSql());
+  return res[0]?.count ?? 0;
+}
+
+// Events in a recent window, for organizations whose trial lapsed but whose
+// SDKs never stopped. The lifetime count above says "you once used this"; this
+// one says "you are using this right now", which is the only number that
+// actually argues for a subscription.
+export async function getOrganizationEventsCountSince(
+  projectIds: string[],
+  since: Date
+) {
+  if (projectIds.length === 0) {
+    return 0;
+  }
+
+  const { sb, getSql } = createSqlBuilder();
+
+  sb.select.count = 'COUNT(*) AS count';
+  sb.where.projectIds = `project_id IN (${projectIds.map((id) => sqlstring.escape(id)).join(',')})`;
+  sb.where.names = `name NOT IN ('session_start', 'session_end')`;
+  sb.where.createdAt = `created_at >= ${sqlstring.escape(formatClickhouseDate(since, true))}`;
 
   const res = await chQuery<{ count: number }>(getSql());
   return res[0]?.count ?? 0;
