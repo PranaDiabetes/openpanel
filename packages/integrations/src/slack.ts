@@ -1,6 +1,12 @@
 // Cred to (@c_alares) https://github.com/christianalares/seventy-seven/blob/main/packages/integrations/src/slack/index.ts
 
 import * as Slack from '@slack/bolt';
+import {
+  browserFetcher,
+  postWebhook,
+  type WebhookFetcher,
+  type WebhookResult,
+} from './fetcher';
 const { LogLevel, App: SlackApp } = Slack;
 import { InstallProvider } from '@slack/oauth';
 
@@ -25,7 +31,8 @@ export const slackInstaller = SLACK_CLIENT_ID
 export const getSlackInstallUrl = ({
   integrationId,
   organizationId,
-}: { integrationId: string; organizationId: string }) => {
+  projectId,
+}: { integrationId: string; organizationId: string; projectId: string }) => {
   if (!SLACK_CLIENT_ID) {
     throw new Error('SLACK_CLIENT_ID is not set (slack.ts)');
   }
@@ -37,24 +44,23 @@ export const getSlackInstallUrl = ({
       'team:read',
     ],
     redirectUri: SLACK_OAUTH_REDIRECT_URL,
-    metadata: JSON.stringify({ integrationId, organizationId }),
+    metadata: JSON.stringify({ integrationId, organizationId, projectId }),
   });
 };
 
 export function sendSlackNotification({
   webhookUrl,
   message,
+  fetcher = browserFetcher,
 }: {
   webhookUrl: string;
   message: string;
-}) {
-  return fetch(webhookUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text: message,
-    }),
-  });
+  /**
+   * Server callers MUST pass `safeWebhookFetcher` from `./safe-fetcher`. The URL
+   * comes from Slack's OAuth response rather than raw user input, but it is
+   * still a stored URL we POST to from inside our network.
+   */
+  fetcher?: WebhookFetcher;
+}): Promise<WebhookResult> {
+  return postWebhook(fetcher, webhookUrl, { text: message });
 }

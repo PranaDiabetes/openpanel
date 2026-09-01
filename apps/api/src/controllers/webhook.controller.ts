@@ -6,7 +6,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 import { tryCatch } from '@openpanel/common';
-import { db, getOrganizationByProjectIdCached } from '@openpanel/db';
+import { db, getOrganizationByProjectIdCached, Prisma } from '@openpanel/db';
+import { safeWebhookFetcher } from '@openpanel/integrations/src/safe-fetcher';
 import {
   sendSlackNotification,
   slackInstaller,
@@ -25,6 +26,9 @@ const paramsSchema = z.object({
 const metadataSchema = z.object({
   organizationId: z.string(),
   integrationId: z.string(),
+  // Optional for back-compat with install URLs generated before integrations
+  // became project-scoped; the post-install redirect falls back to the org page.
+  projectId: z.string().optional(),
 });
 
 export async function slackWebhook(
@@ -80,12 +84,13 @@ export async function slackWebhook(
 
     // Send a notification first to confirm the connection
     await sendSlackNotification({
+      fetcher: safeWebhookFetcher,
       webhookUrl: parsedJson.data.incoming_webhook.url,
       message:
         '👋 Hello. You have successfully connected OpenPanel.dev to your Slack workspace.',
     });
 
-    const { organizationId, integrationId } = parsedMetadata.data;
+    const { organizationId, integrationId, projectId } = parsedMetadata.data;
 
     await db.integration.update({
       where: {
@@ -100,8 +105,16 @@ export async function slackWebhook(
       },
     });
 
+    const dashboardUrl =
+      process.env.DASHBOARD_URL || process.env.NEXT_PUBLIC_DASHBOARD_URL;
+    // Integrations are project-scoped; the org-level integrations route no longer
+    // exists. Newer installs carry projectId in their metadata. Older in-flight
+    // installs (started before the project-scoped routes shipped) may lack it —
+    // fall back to the org landing page rather than a now-404 integrations URL.
     return reply.redirect(
-      `${process.env.DASHBOARD_URL || process.env.NEXT_PUBLIC_DASHBOARD_URL}/${organizationId}/integrations/installed`
+      projectId
+        ? `${dashboardUrl}/${organizationId}/${projectId}/integrations/installed`
+        : `${dashboardUrl}/${organizationId}`
     );
   } catch (err) {
     request.log.error(err);
@@ -143,9 +156,64 @@ const TRACKED_SUBSCRIPTION_FIELDS = [
   'subscriptionStartsAt',
   'subscriptionEndsAt',
   'subscriptionCanceledAt',
+  'subscriptionCancelReason',
   'subscriptionInterval',
   'subscriptionPeriodEventsLimit',
+  'subscriptionPauseAtPeriodEnd',
+  'subscriptionResumesAt',
+  'subscriptionFirstStartedAt',
 ] as const;
+
+const CANCELLATION_REASONS = [
+  'too_expensive',
+  'missing_features',
+  'switched_service',
+  'unused',
+  'customer_service',
+  'low_quality',
+  'too_complex',
+  'other',
+] as const;
+
+type CancellationReason = (typeof CANCELLATION_REASONS)[number];
+
+// Polar types the reason as an open enum (unknown strings can appear); only
+// store values our own union knows about.
+function parseCancellationReason(
+  reason: string | null | undefined
+): CancellationReason | null {
+  return CANCELLATION_REASONS.includes(reason as CancellationReason)
+    ? (reason as CancellationReason)
+    : null;
+}
+
+type PolarSubscriptionDiscount = PolarSubscriptionData['discount'];
+
+// Compact summary of Polar's embedded discount object so the dashboard can
+// show that a discount is active (save offer or any Polar discount code).
+export function toSubscriptionDiscount(
+  discount: PolarSubscriptionDiscount
+): PrismaJson.IPrismaSubscriptionDiscount | null {
+  if (!discount) {
+    return null;
+  }
+  return {
+    id: discount.id,
+    name: discount.name,
+    type: discount.type === 'fixed' ? 'fixed' : 'percentage',
+    basisPoints: 'basisPoints' in discount ? discount.basisPoints : null,
+    amount: 'amount' in discount ? discount.amount : null,
+    currency: 'currency' in discount ? discount.currency : null,
+    duration:
+      discount.duration === 'repeating'
+        ? 'repeating'
+        : discount.duration === 'forever'
+          ? 'forever'
+          : 'once',
+    durationInMonths:
+      'durationInMonths' in discount ? discount.durationInMonths : null,
+  };
+}
 
 const normalizeLogValue = (value: unknown) =>
   value instanceof Date ? value.toISOString() : (value ?? null);
@@ -267,6 +335,23 @@ async function syncSubscriptionToOrg(
         : data.canceledAt
       : data.currentPeriodEnd,
     subscriptionInterval: data.recurringInterval,
+    // Cancellation feedback + pause state mirror Polar so portal-driven cancels
+    // and pauses are captured too (our in-app flows also set them via the API,
+    // which just echoes back through here).
+    subscriptionCancelReason: parseCancellationReason(
+      data.customerCancellationReason
+    ),
+    subscriptionCancelComment: data.customerCancellationComment ?? null,
+    subscriptionPauseAtPeriodEnd: data.pauseAtPeriodEnd,
+    subscriptionResumesAt: data.resumesAt,
+    subscriptionDiscount:
+      toSubscriptionDiscount(data.discount) ?? Prisma.DbNull,
+    // Stable tenure anchor: keep the stored value while the subscription id is
+    // unchanged; a new subscription (re-subscribe) restarts tenure.
+    subscriptionFirstStartedAt:
+      organization.subscriptionId === data.id
+        ? (organization.subscriptionFirstStartedAt ?? data.createdAt)
+        : data.createdAt,
     subscriptionPeriodEventsLimit,
     subscriptionPeriodEventsCountExceededAt:
       typeof subscriptionPeriodEventsLimit === 'number' &&
@@ -275,6 +360,21 @@ async function syncSubscriptionToOrg(
       organization.subscriptionPeriodEventsLimit < subscriptionPeriodEventsLimit
         ? null
         : undefined,
+    // A raised limit re-arms the usage alerts for the new headroom.
+    ...(typeof subscriptionPeriodEventsLimit === 'number' &&
+    typeof organization.subscriptionPeriodEventsLimit === 'number' &&
+    organization.subscriptionPeriodEventsLimit < subscriptionPeriodEventsLimit
+      ? { usageWarningSentAt: null, usageExceededSentAt: null }
+      : {}),
+    // Reaching checkout takes the org out of the wind-down population for good
+    // — that sequence only targets trials that never had a subscription — so
+    // release the ingestion block and any scheduled deletion. Guarded on the
+    // org actually being in wind-down so we never clear a `deleteAt` the owner
+    // set themselves. The wind-down cron re-checks this too, for the webhook we
+    // never receive.
+    ...(organization.windDownStartedAt
+      ? { windDownStartedAt: null, windDownStep: null, deleteAt: null }
+      : {}),
   };
 
   const changes = diffOrganizationFields(
@@ -317,7 +417,10 @@ export async function polarWebhook(
   }>,
   reply: FastifyReply
 ) {
-  request.log.info({ body: request.body }, 'polar webhook received');
+  // Don't log the raw body: it can carry customer free text (e.g. the
+  // cancellation comment) that the logger's redaction patterns don't cover.
+  // `eventCtx` is logged right after validation instead.
+  request.log.info('polar webhook received');
 
   const validation = await tryCatch(async () =>
     validatePolarEvent(
@@ -402,6 +505,9 @@ export async function polarWebhook(
           data: {
             subscriptionPeriodEventsCount: 0,
             subscriptionPeriodEventsCountExceededAt: null,
+            // New cycle — the usage alerts may fire again.
+            usageWarningSentAt: null,
+            usageExceededSentAt: null,
           },
         });
 
@@ -419,6 +525,9 @@ export async function polarWebhook(
       // All subscription lifecycle events carry the same Subscription object;
       // sync them through a single path (new subs, cancellations, revokes,
       // reactivations, plan changes, payment-state changes).
+      // Pause/resume transitions arrive via `subscription.updated` (the SDK's
+      // webhook union has no dedicated paused/reactivated payloads yet) and are
+      // reflected in `status` / `pauseAtPeriodEnd` / `resumesAt` below.
       case 'subscription.created':
       case 'subscription.active':
       case 'subscription.updated':

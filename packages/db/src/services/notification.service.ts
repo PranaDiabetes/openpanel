@@ -49,17 +49,19 @@ export const BASE_INTEGRATIONS: Integration[] = [
       type: APP_NOTIFICATION_INTEGRATION_ID,
     },
     organizationId: '',
+    projectId: null,
   },
-  // {
-  //   id: EMAIL_NOTIFICATION_INTEGRATION_ID,
-  //   name: 'Email',
-  //   createdAt: new Date(),
-  //   updatedAt: new Date(),
-  //   config: {
-  //     type: EMAIL_NOTIFICATION_INTEGRATION_ID,
-  //   },
-  //   organizationId: '',
-  // },
+  {
+    id: EMAIL_NOTIFICATION_INTEGRATION_ID,
+    name: 'Email',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    config: {
+      type: EMAIL_NOTIFICATION_INTEGRATION_ID,
+    },
+    organizationId: '',
+    projectId: null,
+  },
 ];
 
 export const isBaseIntegration = (id: string) =>

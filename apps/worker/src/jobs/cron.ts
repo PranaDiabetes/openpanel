@@ -9,9 +9,12 @@ import {
 import type { CronQueuePayload } from '@openpanel/queue';
 import type { Job } from 'bullmq';
 import { cohortRefreshCronJob } from './cron.cohort-refresh';
+import { dataHealthCronJob } from './cron.data-health';
 import { jobDelete } from './cron.delete';
+import { flushExportsJob } from './cron.flush-exports';
 import { insightCleanupCronJob } from './cron.insight-cleanup';
 import { weeklyDigestCronJob } from './cron.weekly-digest';
+import { windDownCronJob } from './cron.wind-down';
 import { onboardingJob } from './cron.onboarding';
 import { ping } from './cron.ping';
 import { salt } from './cron.salt';
@@ -74,6 +77,15 @@ export async function cronJob(job: Job<CronQueuePayload>) {
     }
     case 'weeklyDigest': {
       return await weeklyDigestCronJob();
+    }
+    case 'dataHealth': {
+      return await dataHealthCronJob();
+    }
+    case 'windDown': {
+      return await windDownCronJob();
+    }
+    case 'flushExports': {
+      return await flushExportsJob(job);
     }
   }
 }

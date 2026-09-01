@@ -322,11 +322,29 @@ export const zReport = zReportInput.extend({
 // Alias for backward compatibility
 export const zChartInput = zReportInput;
 
+/**
+ * A per-project grant. `read` means exactly that: the member can look at the
+ * project but no mutation will be accepted for it. `admin` is not offered here
+ * - destructive operations hang off the organization role instead, so a third
+ * project level would be a second way to say `write`.
+ */
+export const zProjectAccessGrant = z.object({
+  projectId: z.string(),
+  level: z.enum(['read', 'write']),
+});
+export type IProjectAccessGrant = z.infer<typeof zProjectAccessGrant>;
+
 export const zInviteUser = z.object({
   email: z.string().email(),
   organizationId: z.string(),
   role: z.enum(['org:admin', 'org:member']),
-  access: z.array(z.string()),
+  access: z.array(zProjectAccessGrant),
+});
+
+export const zUpdateMemberAccess = z.object({
+  userId: z.string(),
+  organizationId: z.string(),
+  access: z.array(zProjectAccessGrant),
 });
 
 export const zShareOverview = z.object({
@@ -408,84 +426,8 @@ export const zOnboardingProject = z
     }
   });
 
-export const zSlackAuthResponse = z.object({
-  ok: z.literal(true),
-  app_id: z.string(),
-  authed_user: z.object({
-    id: z.string(),
-  }),
-  scope: z.string(),
-  token_type: z.literal('bot'),
-  access_token: z.string(),
-  bot_user_id: z.string(),
-  team: z.object({
-    id: z.string(),
-    name: z.string(),
-  }),
-  incoming_webhook: z.object({
-    channel: z.string(),
-    channel_id: z.string(),
-    configuration_url: z.string().url(),
-    url: z.string().url(),
-  }),
-});
 
-export const zSlackConfig = z
-  .object({
-    type: z.literal('slack'),
-  })
-  .extend(zSlackAuthResponse.shape);
-
-export type ISlackConfig = z.infer<typeof zSlackConfig>;
-
-export const zWebhookConfig = z.object({
-  type: z.literal('webhook'),
-  url: z.string().url(),
-  headers: z.record(z.string(), z.string()),
-  payload: z.record(z.string(), z.unknown()).optional(),
-  mode: z.enum(['message', 'javascript']).default('message'),
-  javascriptTemplate: z.string().optional(),
-});
-export type IWebhookConfig = z.infer<typeof zWebhookConfig>;
-
-export const zDiscordConfig = z.object({
-  type: z.literal('discord'),
-  url: z.string().url(),
-});
-export type IDiscordConfig = z.infer<typeof zDiscordConfig>;
-
-export const zAppConfig = z.object({
-  type: z.literal('app'),
-});
-export type IAppConfig = z.infer<typeof zAppConfig>;
-
-export const zEmailConfig = z.object({
-  type: z.literal('email'),
-});
-export type IEmailConfig = z.infer<typeof zEmailConfig>;
-
-export type IIntegrationConfig =
-  | ISlackConfig
-  | IDiscordConfig
-  | IWebhookConfig
-  | IAppConfig
-  | IEmailConfig;
-
-const zCreateIntegration = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1),
-  organizationId: z.string().min(1),
-});
-
-export const zCreateSlackIntegration = zCreateIntegration;
-
-export const zCreateWebhookIntegration = zCreateIntegration.extend({
-  config: zWebhookConfig,
-});
-
-export const zCreateDiscordIntegration = zCreateIntegration.extend({
-  config: zDiscordConfig,
-});
+export * from './integrations';
 
 export const zNotificationRuleEventConfig = z.object({
   type: z.literal('events'),
@@ -634,6 +576,33 @@ export const zCheckout = z.object({
 });
 export type ICheckout = z.infer<typeof zCheckout>;
 
+// Mirrors Polar's CustomerCancellationReason enum.
+export const zCancellationReason = z.enum([
+  'too_expensive',
+  'missing_features',
+  'switched_service',
+  'unused',
+  'customer_service',
+  'low_quality',
+  'too_complex',
+  'other',
+]);
+export type ICancellationReason = z.infer<typeof zCancellationReason>;
+
+export const zCancelSubscription = z.object({
+  organizationId: z.string(),
+  reason: zCancellationReason,
+  comment: z.string().trim().max(1000).optional(),
+});
+export type ICancelSubscription = z.infer<typeof zCancelSubscription>;
+
+export const zPauseSubscription = z.object({
+  organizationId: z.string(),
+  // Months after the current period end before billing automatically resumes.
+  months: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+});
+export type IPauseSubscription = z.infer<typeof zPauseSubscription>;
+
 export const zGroupId = z
   .string()
   .min(1)
@@ -671,11 +640,33 @@ const zProjectMapper = z.object({
   to: z.string().min(1),
 });
 
+/**
+ * `z.string().url()` alone accepts `file:`, `gopher:` and friends. Restricting
+ * the scheme here gives the user an immediate form error instead of a job that
+ * fails later. It is NOT the SSRF control - the value is stored and fetched
+ * afterwards, so the destination is re-validated at fetch time by
+ * `safeFetchStream`.
+ */
+export const zHttpUrl = z
+  .string()
+  .url()
+  .refine(
+    (value) => {
+      try {
+        const { protocol } = new URL(value);
+        return protocol === 'http:' || protocol === 'https:';
+      } catch {
+        return false;
+      }
+    },
+    { message: 'Only http and https URLs are allowed' },
+  );
+
 const createFileImportConfig = <T extends string>(provider: T) =>
   z.object({
     provider: z.literal(provider),
     type: z.literal('file'),
-    fileUrl: z.string().url(),
+    fileUrl: zHttpUrl,
   });
 
 // Import configs
