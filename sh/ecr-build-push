@@ -1,0 +1,38 @@
+#!/bin/bash
+set -euo pipefail
+
+ENV_NAME=${1:-}
+if [[ "$ENV_NAME" != "production" && "$ENV_NAME" != "develop" ]]; then
+  echo "Usage: $0 <production|develop>"
+  exit 1
+fi
+
+AWS_REGION=${AWS_REGION:-us-east-1}
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+echo "Logging in to ${REGISTRY}..."
+aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+
+build_and_push() {
+  local role=$1
+  local dockerfile=$2
+  shift 2
+  local build_args=("$@")
+  local repo="openpanel-${ENV_NAME}-${role}"
+  local image="${REGISTRY}/${repo}:latest"
+
+  echo "Building ${image} from ${dockerfile}..."
+  docker build --platform linux/amd64 -f "$dockerfile" "${build_args[@]+"${build_args[@]}"}" -t "$image" .
+  echo "Pushing ${image}..."
+  docker push "$image"
+}
+
+# Build context is always the repo root — required for the workspace
+# Dockerfiles (COPY package.json, packages/, etc. from the monorepo root).
+build_and_push "api" "apps/api/Dockerfile" --build-arg DATABASE_URL="postgresql://p@p:5432/p"
+build_and_push "worker" "apps/worker/Dockerfile" --build-arg DATABASE_URL="postgresql://p@p:5432/p"
+build_and_push "dashboard" "apps/start/Dockerfile"
+build_and_push "clickhouse" "infra/clickhouse-image/Dockerfile"
+
+echo "All images pushed for ${ENV_NAME}."

@@ -29,6 +29,10 @@ if (process.env.NITRO) {
 
 const config = defineConfig({
   plugins,
+  server: {
+    host: true,
+    port: Number(process.env.DASHBOARD_PORT) || 3000,
+  },
   ssr: {
     noExternal: ['react-syntax-highlighter', 'lowlight', 'highlight.js'],
   },
