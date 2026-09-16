@@ -1,0 +1,22 @@
+name: deploy-api
+
+on:
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    permissions:
+      id-token: write
+      contents: read
+    uses: PranaDiabetes/gha-workflows/.github/workflows/build-and-push-to-ecr.yml@v1
+    with:
+      target: ${{ case(github.ref_name == 'main', 'production', 'develop') }}
+      tf-state-key: openpanel-infra.tfstate
+      ecr-repository-uri-output-name: api_ecr_repository_uri
+      dockerfile: apps/api/Dockerfile
+    secrets: inherit

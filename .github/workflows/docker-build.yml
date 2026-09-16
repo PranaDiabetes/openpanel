@@ -1,33 +1,10 @@
 name: Docker Build and Push
 
+# Upstream's Docker Hub build. This fork deploys to ECR instead (see
+# deploy-api.yml and friends), and has no Docker Hub credentials, so this runs
+# only when someone asks for it.
 on:
   workflow_dispatch:
-  push:
-    paths-ignore:
-      # README and docs
-      - "**/README*"
-      - "**/readme*"
-      - "**/*.md"
-      - "**/docs/**"
-      - "**/CHANGELOG*"
-      - "**/LICENSE*"
-      # Test files
-      - "**/*.test.*"
-      - "**/*.spec.*"
-      - "**/__tests__/**"
-      - "**/tests/**"
-      # SDKs (published separately)
-      - "packages/sdks/**"
-      # Public app (docs/marketing, not part of Docker deploy)
-      - "apps/public/**"
-      # Dev / tooling
-      - "**/.vscode/**"
-      - "**/.cursor/**"
-      - "**/.env.example"
-      - "**/.env.*.example"
-      - "**/.gitignore"
-      - "**/.eslintignore"
-      - "**/.prettierignore"
 
 env:
   repo_owner: "openpanel-dev"
