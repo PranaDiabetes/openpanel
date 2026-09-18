@@ -20,9 +20,9 @@ export const getSharedVitestConfig = ({
       setupFiles: [rootTestSetup(dirname)],
       env: {
         // Always point at local Docker — never production, regardless of .env
-        DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/postgres?schema=public',
-        CLICKHOUSE_URL: 'http://localhost:8123/openpanel',
-        REDIS_URL: 'redis://localhost:6379',
+        DATABASE_URL: 'postgresql://postgres:postgres@localhost:55432/postgres?schema=public',
+        CLICKHOUSE_URL: 'http://localhost:58123/openpanel',
+        REDIS_URL: 'redis://localhost:56379',
         SELF_HOSTED: 'true',
       },
       include: ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],

@@ -1,0 +1,29 @@
+name: deploy-worker
+
+on:
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  # Gate the deploy on the repo's shared test suite. A push to develop/main
+  # fires all three deploy workflows, each of which builds an image that
+  # ecr-deployer rolls out immediately, so nothing may build before this passes.
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build-and-push:
+    needs: test
+    permissions:
+      id-token: write
+      contents: read
+    uses: PranaDiabetes/gha-workflows/.github/workflows/build-and-push-to-ecr.yml@v1
+    with:
+      target: ${{ case(github.ref_name == 'main', 'production', 'develop') }}
+      tf-state-key: openpanel-infra.tfstate
+      ecr-repository-uri-output-name: worker_ecr_repository_uri
+      dockerfile: apps/worker/Dockerfile
+    secrets: inherit

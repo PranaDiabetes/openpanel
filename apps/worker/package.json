@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest",
     "dev": "dotenv -e ../../.env -c -v WATCH=1 tsdown",
-    "testing": "WORKER_PORT=9999 pnpm dev",
+    "testing": "pnpm dev",
     "start": "node dist/index.js",
     "build": "rm -rf dist && tsdown",
     "typecheck": "tsc --noEmit"

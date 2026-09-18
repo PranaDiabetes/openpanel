@@ -7,7 +7,7 @@ services:
     volumes:
       - ./docker/data/op-db-data:/var/lib/postgresql/data
     ports:
-      - 5432:5432
+      - 55432:5432
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -19,7 +19,7 @@ services:
       - ./docker/data/op-kv-data:/data
     command: ["redis-server", "--maxmemory-policy", "noeviction"]
     ports:
-      - 6379:6379
+      - 56379:6379
 
   op-ch:
     image: clickhouse/clickhouse-server:26.1.3.52
@@ -37,9 +37,9 @@ services:
         soft: 262144
         hard: 262144
     ports:
-      - "8123:8123" # HTTP interface
-      - "9000:9000" # Native/TCP interface
-      - "9009:9009" # Inter-server communication
+      - "58123:8123" # HTTP interface
+      - "59000:9000" # Native/TCP interface
+      - "59009:9009" # Inter-server communication
 
   op-rp:
     image: redpandadata/redpanda:v25.1.4
@@ -47,8 +47,8 @@ services:
     command:
       - redpanda
       - start
-      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr=internal://op-rp:9092,external://localhost:19092
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:59092
+      - --advertise-kafka-addr=internal://op-rp:9092,external://localhost:59092
       - --rpc-addr=0.0.0.0:33145
       - --advertise-rpc-addr=op-rp:33145
       - --smp=1
@@ -59,8 +59,8 @@ services:
       - ./docker/data/op-rp-data:/var/lib/redpanda/data
       - ./docker/redpanda/bootstrap.yaml:/etc/redpanda/.bootstrap.yaml:ro
     ports:
-      - "19092:19092" # Kafka API (external)
-      - "9644:9644"   # Admin API
+      - "59092:59092" # Kafka API (external)
+      - "59644:9644"  # Admin API
 
   op-rp-console:
     image: redpandadata/console:v3.7.2
@@ -72,4 +72,4 @@ services:
       REDPANDA_ADMINAPI_ENABLED: "true"
       REDPANDA_ADMINAPI_URLS: http://op-rp:9644
     ports:
-      - "8091:8080"
+      - "58091:8080"

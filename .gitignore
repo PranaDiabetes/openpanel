@@ -112,6 +112,7 @@ web_modules/
 
 .env
 .env*
+.dev.vars
 
 # parcel-bundler cache (https://parceljs.org/)
 
